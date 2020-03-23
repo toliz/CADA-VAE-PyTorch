@@ -92,7 +92,7 @@ class Model(nn.Module):
     def reparameterize(self, mu, logvar):
         if self.reparameterize_with_noise:
             sigma = torch.exp(logvar)
-            eps = torch.FloatTensor(logvar.size()[0],1, device=self.device).normal_(0,1)
+            eps = torch.FloatTensor(logvar.size()[0],1).normal_(0,1).to(self.device)
             eps  = eps.expand(sigma.size())
             return mu + sigma*eps
         else:
@@ -162,15 +162,15 @@ class Model(nn.Module):
 
         f1 = 1.0*(self.current_epoch - self.warmup['cross_reconstruction']['start_epoch'] )/(1.0*( self.warmup['cross_reconstruction']['end_epoch']- self.warmup['cross_reconstruction']['start_epoch']))
         f1 = f1*(1.0*self.warmup['cross_reconstruction']['factor'])
-        cross_reconstruction_factor = torch.FloatTensor([min(max(f1,0),self.warmup['cross_reconstruction']['factor'])], device=self.device)
+        cross_reconstruction_factor = torch.FloatTensor([min(max(f1,0),self.warmup['cross_reconstruction']['factor'])]).to(self.device)
 
         f2 = 1.0 * (self.current_epoch - self.warmup['beta']['start_epoch']) / ( 1.0 * (self.warmup['beta']['end_epoch'] - self.warmup['beta']['start_epoch']))
         f2 = f2 * (1.0 * self.warmup['beta']['factor'])
-        beta = torch.FloatTensor([min(max(f2, 0), self.warmup['beta']['factor'])], device=self.device)
+        beta = torch.FloatTensor([min(max(f2, 0), self.warmup['beta']['factor'])]).to(self.device)
 
         f3 = 1.0*(self.current_epoch - self.warmup['distance']['start_epoch'] )/(1.0*( self.warmup['distance']['end_epoch']- self.warmup['distance']['start_epoch']))
         f3 = f3*(1.0*self.warmup['distance']['factor'])
-        distance_factor = torch.FloatTensor([min(max(f3,0),self.warmup['distance']['factor'])], device=self.device)
+        distance_factor = torch.FloatTensor([min(max(f3,0),self.warmup['distance']['factor'])]).to(self.device)
 
         ##############################################
         # Put the loss together and call the optimizer
@@ -189,7 +189,7 @@ class Model(nn.Module):
 
         self.optimizer.step()
 
-        return loss.item()
+        return [loss.item(), torch.tensor([reconstruction_loss, KLD, cross_reconstruction_loss, distance], dtype=float)]
 
     def train_vae(self):
 
@@ -204,8 +204,10 @@ class Model(nn.Module):
         self.reparameterize_with_noise = True
 
         print('train for reconstruction')
+        losses_2 = []
         for epoch in range(0, self.nepoch ):
             self.current_epoch = epoch
+            avg_loss = torch.tensor([0, 0, 0, 0], dtype=float)
 
             i=-1
             for iters in range(0, self.dataset.ntrain, self.batch_size):
@@ -218,13 +220,16 @@ class Model(nn.Module):
                     data_from_modalities[j] = data_from_modalities[j].to(self.device)
                     data_from_modalities[j].requires_grad = False
 
-                loss = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
+                [loss, metrics] = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
+                avg_loss += metrics
 
                 if i%50==0:
                     print('Epoch {} | iter {} \t | loss {:.2f}'.format(epoch, i, loss))
 
                 if i%50==0 and i>0:
                     losses.append(loss)
+            
+            losses_2.append(avg_loss.tolist())
 
         # turn into evaluation mode:
         for key, value in self.encoder.items():
@@ -232,7 +237,7 @@ class Model(nn.Module):
         for key, value in self.decoder.items():
             self.decoder[key].eval()
 
-        return losses
+        return losses, losses_2
 
     def train_classifier(self, show_plots=False):
 
@@ -343,7 +348,7 @@ class Model(nn.Module):
                         features_of_that_class = features[label == s, :]  # order of features and labels must coincide
                         # if number of selected features is smaller than the number of features we want per class:
                         multiplier = torch.ceil(torch.FloatTensor(
-                            [max(1, sample_per_class / features_of_that_class.size(0))], device=self.device)).long().item()
+                            [max(1, sample_per_class / features_of_that_class.size(0))])).long().item()
 
                         features_of_that_class = features_of_that_class.repeat(multiplier, 1)
 
@@ -358,7 +363,7 @@ class Model(nn.Module):
 
                     return features_to_return, labels_to_return
                 else:
-                    return torch.FloatTensor([], device=self.device), torch.LongTensor([], device=self.device)
+                    return torch.FloatTensor([]).to(self.device), torch.LongTensor([]).to(self.device)
 
 
             # some of the following might be empty tensors if the specified number of

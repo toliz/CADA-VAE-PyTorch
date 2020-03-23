@@ -159,7 +159,7 @@ for d in model.all_data_sources_without_duplicates:
 """
 
 
-losses = model.train_vae()
+losses, losses_2 = model.train_vae()
 
 u,s,h,history = model.train_classifier()
 
@@ -177,6 +177,7 @@ state = {
             'hyperparameters':hyperparameters,
             'encoder':{},
             'decoder':{}
+            'losses': losses_2
         }
 for d in model.all_data_sources:
     state['encoder'][d] = model.encoder[d].state_dict()
