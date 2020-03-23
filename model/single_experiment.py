@@ -159,7 +159,9 @@ for d in model.all_data_sources_without_duplicates:
 """
 
 
-losses, losses_2 = model.train_vae()
+losses = model.train_vae()
+
+print(losses)
 
 u,s,h,history = model.train_classifier()
 

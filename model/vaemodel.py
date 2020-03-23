@@ -189,13 +189,10 @@ class Model(nn.Module):
 
         self.optimizer.step()
 
-        return [loss.item(), torch.tensor([reconstruction_loss, KLD, cross_reconstruction_loss, distance], dtype=float)]
+        return loss.item()
 
     def train_vae(self):
-
         losses = []
-
-        #self.dataloader = data.DataLoader(self.dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)#,num_workers = 4)
 
         self.dataset.novelclasses =self.dataset.novelclasses.long().to(self.device)
         self.dataset.seenclasses =self.dataset.seenclasses.long().to(self.device)
@@ -204,10 +201,9 @@ class Model(nn.Module):
         self.reparameterize_with_noise = True
 
         print('train for reconstruction')
-        losses_2 = []
         for epoch in range(0, self.nepoch ):
             self.current_epoch = epoch
-            avg_loss = torch.tensor([0, 0, 0, 0], dtype=float)
+            epoch_loss = 0.0
 
             i=-1
             for iters in range(0, self.dataset.ntrain, self.batch_size):
@@ -220,16 +216,13 @@ class Model(nn.Module):
                     data_from_modalities[j] = data_from_modalities[j].to(self.device)
                     data_from_modalities[j].requires_grad = False
 
-                [loss, metrics] = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
-                avg_loss += metrics
+                loss = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
+                epoch_loss += loss.item()
 
                 if i%50==0:
                     print('Epoch {} | iter {} \t | loss {:.2f}'.format(epoch, i, loss))
 
-                if i%50==0 and i>0:
-                    losses.append(loss)
-            
-            losses_2.append(avg_loss.tolist())
+            losses.append(epoch_loss / self.dataset.ntrain)
 
         # turn into evaluation mode:
         for key, value in self.encoder.items():
@@ -237,7 +230,7 @@ class Model(nn.Module):
         for key, value in self.decoder.items():
             self.decoder[key].eval()
 
-        return losses, losses_2
+        return losses
 
     def train_classifier(self, show_plots=False):
 
