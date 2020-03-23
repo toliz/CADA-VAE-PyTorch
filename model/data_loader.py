@@ -1,5 +1,3 @@
-
-
 import numpy as np
 import scipy.io as sio
 import torch
@@ -10,12 +8,14 @@ from pathlib import Path
 import pickle
 import copy
 
+
 def map_label(label, classes):
     mapped_label = torch.LongTensor(label.size())
     for i in range(classes.size(0)):
         mapped_label[label==classes[i]] = i
 
     return mapped_label
+
 
 class DATA_LOADER(object):
     def __init__(self, dataset, aux_datasource, device='cuda'):
@@ -51,11 +51,9 @@ class DATA_LOADER(object):
         elif self.dataset == 'AWA2':
             self.datadir = self.data_path + '/AWA2/'
 
-
         self.read_matdataset()
         self.index_in_epoch = 0
         self.epochs_completed = 0
-
 
     def next_batch(self, batch_size):
         #####################################################################
@@ -67,9 +65,7 @@ class DATA_LOADER(object):
         batch_att = self.aux_data[batch_label]
         return batch_label, [ batch_feature, batch_att]
 
-
     def read_matdataset(self):
-
         path= self.datadir + 'res101.mat'
         print('_____')
         print(path)
@@ -86,21 +82,17 @@ class DATA_LOADER(object):
         test_seen_loc = matcontent['test_seen_loc'].squeeze() - 1
         test_unseen_loc = matcontent['test_unseen_loc'].squeeze() - 1
 
-
         if self.auxiliary_data_source == 'attributes':
             self.aux_data = torch.from_numpy(matcontent['att'].T).float().to(self.device)
         else:
             if self.dataset != 'CUB':
                 print('the specified auxiliary datasource is not available for this dataset')
             else:
-
                 with open(self.datadir + 'CUB_supporting_data.p', 'rb') as h:
                     x = pickle.load(h)
                     self.aux_data = torch.from_numpy(x[self.auxiliary_data_source]).float().to(self.device)
 
-
                 print('loaded ', self.auxiliary_data_source)
-
 
         scaler = preprocessing.MinMaxScaler()
 
@@ -132,7 +124,6 @@ class DATA_LOADER(object):
         self.data['train_seen']['labels']= train_label
         self.data['train_seen'][self.auxiliary_data_source] = self.aux_data[train_label]
 
-
         self.data['train_unseen'] = {}
         self.data['train_unseen']['resnet_features'] = None
         self.data['train_unseen']['labels'] = None
@@ -149,17 +140,14 @@ class DATA_LOADER(object):
         self.novelclass_aux_data = self.aux_data[self.novelclasses]
         self.seenclass_aux_data = self.aux_data[self.seenclasses]
 
-
     def transfer_features(self, n, num_queries='num_features'):
         print('size before')
         print(self.data['test_unseen']['resnet_features'].size())
         print(self.data['train_seen']['resnet_features'].size())
 
-
         print('o'*100)
         print(self.data['test_unseen'].keys())
         for i,s in enumerate(self.novelclasses):
-
             features_of_that_class   = self.data['test_unseen']['resnet_features'][self.data['test_unseen']['labels']==s ,:]
 
             if 'attributes' == self.auxiliary_data_source:
@@ -188,21 +176,16 @@ class DATA_LOADER(object):
             else:
                 use_hie = False
 
-
             num_features = features_of_that_class.size(0)
 
             indices = torch.randperm(num_features)
 
             if num_queries!='num_features':
-
                 indices = indices[:n+num_queries]
-
 
             print(features_of_that_class.size())
 
-
             if i==0:
-
                 new_train_unseen      = features_of_that_class[   indices[:n] ,:]
 
                 if use_att:
@@ -216,13 +199,11 @@ class DATA_LOADER(object):
                 if use_hie:
                     new_train_unseen_hie  = wordnet_of_that_class[ indices[:n] ,:]
 
-
                 new_train_unseen_label  = s.repeat(n)
 
                 new_test_unseen = features_of_that_class[  indices[n:] ,:]
 
                 new_test_unseen_label = s.repeat( len(indices[n:] ))
-
             else:
                 new_train_unseen  = torch.cat(( new_train_unseen             , features_of_that_class[  indices[:n] ,:]),dim=0)
                 new_train_unseen_label  = torch.cat(( new_train_unseen_label , s.repeat(n)),dim=0)
@@ -240,8 +221,6 @@ class DATA_LOADER(object):
                     new_train_unseen_glo    = torch.cat(( new_train_unseen_glo   , glove_of_that_class[indices[:n] ,:]),dim=0)
                 if use_hie:
                     new_train_unseen_hie    = torch.cat(( new_train_unseen_hie   , wordnet_of_that_class[indices[:n] ,:]),dim=0)
-
-
 
         print('new_test_unseen.size(): ', new_test_unseen.size())
         print('new_test_unseen_label.size(): ', new_test_unseen_label.size())
