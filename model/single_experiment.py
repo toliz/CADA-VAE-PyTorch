@@ -176,7 +176,7 @@ state = {
             'state_dict': model.state_dict() ,
             'hyperparameters':hyperparameters,
             'encoder':{},
-            'decoder':{}
+            'decoder':{},
             'losses': losses_2
         }
 for d in model.all_data_sources:

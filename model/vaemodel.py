@@ -389,7 +389,7 @@ class Model(nn.Module):
                     z = self.reparameterize(mu_, logvar_)
                     return z
                 else:
-                    return torch.FloatTensor([], device=self.device)
+                    return torch.FloatTensor([]).to(self.device)
 
             z_seen_img   = convert_datapoints_to_z(img_seen_feat, self.encoder['resnet_features'])
             z_unseen_img = convert_datapoints_to_z(img_unseen_feat, self.encoder['resnet_features'])
