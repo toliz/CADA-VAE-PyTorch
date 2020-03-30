@@ -1,4 +1,5 @@
 #vaemodel
+import numpy as np
 import copy
 import torch
 import torch.backends.cudnn as cudnn
@@ -84,10 +85,10 @@ class Model(nn.Module):
         self.optimizer  = optim.Adam( parameters_to_optimize ,lr=hyperparameters['lr_gen_model'], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=True)
 
         if self.reco_loss_function=='l2':
-            self.reconstruction_criterion = nn.MSELoss(size_average=False)
+            self.reconstruction_criterion = nn.MSELoss(reduction='sum')
 
         elif self.reco_loss_function=='l1':
-            self.reconstruction_criterion = nn.L1Loss(size_average=False)
+            self.reconstruction_criterion = nn.L1Loss(reduction='sum')
 
     def reparameterize(self, mu, logvar):
         if self.reparameterize_with_noise:
@@ -189,10 +190,10 @@ class Model(nn.Module):
 
         self.optimizer.step()
 
-        return loss.item()
+        return np.array([loss.item(), reconstruction_loss.item(), KLD.item(), cross_reconstruction_loss.item(), distance.item()])
 
     def train_vae(self):
-        losses = []
+        losses = [np.array([]) for _ in range(5)]
 
         self.dataset.novelclasses =self.dataset.novelclasses.long().to(self.device)
         self.dataset.seenclasses =self.dataset.seenclasses.long().to(self.device)
@@ -203,7 +204,7 @@ class Model(nn.Module):
         print('train for reconstruction')
         for epoch in range(0, self.nepoch ):
             self.current_epoch = epoch
-            epoch_loss = 0.0
+            epoch_loss = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 
             i=-1
             for iters in range(0, self.dataset.ntrain, self.batch_size):
@@ -217,12 +218,14 @@ class Model(nn.Module):
                     data_from_modalities[j].requires_grad = False
 
                 loss = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
-                epoch_loss += loss.item()
+                epoch_loss += loss
 
                 if i%50==0:
-                    print('Epoch {} | iter {} \t | loss {:.2f}'.format(epoch, i, loss))
+                    print('Epoch {} | iter {} \t | loss {:.2f}'.format(epoch, i, loss[0]))
 
-            losses.append(epoch_loss / self.dataset.ntrain)
+            epoch_loss = epoch_loss / self.dataset.ntrain
+            for i in range(5):
+                losses[i] = np.append(losses[i], epoch_loss[i])
 
         # turn into evaluation mode:
         for key, value in self.encoder.items():
@@ -238,7 +241,7 @@ class Model(nn.Module):
             print('================  transfer features from test to train ==================')
             self.dataset.transfer_features(self.num_shots, num_queries='num_features')
 
-        history = []  # stores accuracies
+        history = [np.array([]) for _ in range(4)]  # stores accuracies
 
 
         cls_seenclasses = self.dataset.seenclasses
@@ -423,15 +426,19 @@ class Model(nn.Module):
                 print('[%.1f]     novel=%.4f, seen=%.4f, h=%.4f , loss=%.4f' % (
                 k, cls.acc_novel, cls.acc_seen, cls.H, cls.average_loss))
 
-                history.append([torch.tensor(cls.acc_seen).item(), torch.tensor(cls.acc_novel).item(),
-                                torch.tensor(cls.H).item()])
+                history[0] = np.append(history[0], cls.loss.item())
+                history[1] = np.append(history[1], cls.acc_seen.item())
+                history[2] = np.append(history[2], cls.acc_novel.item())
+                history[3] = np.append(history[3], cls.H.item())
 
             else:
                 print('[%.1f]  acc=%.4f ' % (k, cls.acc))
-                history.append([0, torch.tensor(cls.acc).item(), 0])
+                history[0] = np.append(history[0], torch.tensor(cls.loss).item())
+                history[1] = np.append(history[1], 0)
+                history[2] = np.append(history[2], torch.tensor(cls.acc_novel).item())
+                history[3] = np.append(history[3], 0)
 
         if self.generalized:
-            return torch.tensor(cls.acc_seen).item(), torch.tensor(cls.acc_novel).item(), torch.tensor(
-                cls.H).item(), history
+            return cls.acc_seen.item(), cls.acc_novel.item(), cls.H.item(), history
         else:
             return 0, torch.tensor(cls.acc).item(), 0, history

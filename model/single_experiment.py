@@ -159,32 +159,30 @@ for d in model.all_data_sources_without_duplicates:
 """
 
 
-losses = model.train_vae()
+vae_history = model.train_vae()
 
-print(losses)
-
-u,s,h,history = model.train_classifier()
-
+u, s, h, clf_history = model.train_classifier()
 
 if hyperparameters['generalized']==True:
-    acc = [hi[2] for hi in history]
+    acc = [hi[2] for hi in clf_history]
 elif hyperparameters['generalized']==False:
-    acc = [hi[1] for hi in history]
+    acc = [hi[1] for hi in clf_history]
 
 print(acc[-1])
 
-
 state = {
+            'name': 'paper',
             'state_dict': model.state_dict() ,
             'hyperparameters':hyperparameters,
             'encoder':{},
             'decoder':{},
-            'losses': losses_2
+            'vae_history': vae_history,
+            'clf_history': clf_history
         }
 for d in model.all_data_sources:
     state['encoder'][d] = model.encoder[d].state_dict()
     state['decoder'][d] = model.decoder[d].state_dict()
 
 
-torch.save(state, 'CADA_trained.pth.tar')
+torch.save(state, 'paper.pt')
 print('>> saved')
