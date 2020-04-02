@@ -29,7 +29,7 @@ args = parser.parse_args()
 ########################################
 hyperparameters = {
     'num_shots': 0,
-    'device': 'cuda',
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'model_specifics': {'cross_reconstruction': True,
                        'name': 'CADA',
                        'distance': 'wasserstein',
@@ -121,8 +121,6 @@ hyperparameters['cls_train_steps'] = [x['cls_train_steps']  for x in cls_train_s
                                         hyperparameters['num_shots']==x['num_shots'],
                                         hyperparameters['generalized']==x['generalized'] ])][0]
 
-print('***')
-print(hyperparameters['cls_train_steps'] )
 if hyperparameters['generalized']:
     if hyperparameters['num_shots']==0:
         hyperparameters['samples_per_class'] = {'CUB': (200, 0, 400, 0), 'SUN': (200, 0, 400, 0),

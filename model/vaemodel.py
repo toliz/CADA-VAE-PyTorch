@@ -70,7 +70,7 @@ class Model(nn.Module):
 
             self.encoder[datatype] = models.encoder_template(dim,self.latent_size,self.hidden_size_rule[datatype],self.device)
 
-            print(str(datatype) + ' ' + str(dim))
+            #print(str(datatype) + ' ' + str(dim))
 
         self.decoder = {}
         for datatype, dim in zip(self.all_data_sources,feature_dimensions):
@@ -81,7 +81,7 @@ class Model(nn.Module):
         for datatype in self.all_data_sources:
             parameters_to_optimize +=  list(self.encoder[datatype].parameters())
             parameters_to_optimize +=  list(self.decoder[datatype].parameters())
-
+        
         self.optimizer  = optim.Adam( parameters_to_optimize ,lr=hyperparameters['lr_gen_model'], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=True)
 
         if self.reco_loss_function=='l2':
@@ -163,15 +163,15 @@ class Model(nn.Module):
 
         f1 = 1.0*(self.current_epoch - self.warmup['cross_reconstruction']['start_epoch'] )/(1.0*( self.warmup['cross_reconstruction']['end_epoch']- self.warmup['cross_reconstruction']['start_epoch']))
         f1 = f1*(1.0*self.warmup['cross_reconstruction']['factor'])
-        cross_reconstruction_factor = torch.FloatTensor([min(max(f1,0),self.warmup['cross_reconstruction']['factor'])]).to(self.device)
+        cross_reconstruction_factor = torch.tensor(min(max(f1,0),self.warmup['cross_reconstruction']['factor'])).to(self.device)
 
         f2 = 1.0 * (self.current_epoch - self.warmup['beta']['start_epoch']) / ( 1.0 * (self.warmup['beta']['end_epoch'] - self.warmup['beta']['start_epoch']))
         f2 = f2 * (1.0 * self.warmup['beta']['factor'])
-        beta = torch.FloatTensor([min(max(f2, 0), self.warmup['beta']['factor'])]).to(self.device)
+        beta = torch.tensor(min(max(f2, 0), self.warmup['beta']['factor'])).to(self.device)
 
         f3 = 1.0*(self.current_epoch - self.warmup['distance']['start_epoch'] )/(1.0*( self.warmup['distance']['end_epoch']- self.warmup['distance']['start_epoch']))
         f3 = f3*(1.0*self.warmup['distance']['factor'])
-        distance_factor = torch.FloatTensor([min(max(f3,0),self.warmup['distance']['factor'])]).to(self.device)
+        distance_factor = torch.tensor(min(max(f3,0),self.warmup['distance']['factor'])).to(self.device)
 
         ##############################################
         # Put the loss together and call the optimizer
@@ -179,12 +179,7 @@ class Model(nn.Module):
 
         self.optimizer.zero_grad()
 
-        loss = reconstruction_loss - beta * KLD
-
-        if cross_reconstruction_loss>0:
-            loss += cross_reconstruction_factor*cross_reconstruction_loss
-        if distance_factor >0:
-            loss += distance_factor*distance
+        loss = reconstruction_loss - beta*KLD + cross_reconstruction_factor*cross_reconstruction_loss + distance_factor*distance
 
         loss.backward()
 
@@ -215,7 +210,6 @@ class Model(nn.Module):
                 label= label.long().to(self.device)
                 for j in range(len(data_from_modalities)):
                     data_from_modalities[j] = data_from_modalities[j].to(self.device)
-                    data_from_modalities[j].requires_grad = False
 
                 loss = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
                 epoch_loss += loss
