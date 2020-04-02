@@ -12,6 +12,8 @@ from data_loader import DATA_LOADER as dataloader
 import final_classifier as  classifier
 import models
 
+from torch.utils.tensorboard import SummaryWriter
+
 class LINEAR_LOGSOFTMAX(nn.Module):
     def __init__(self, input_dim, nclass):
         super(LINEAR_LOGSOFTMAX, self).__init__()
@@ -22,6 +24,31 @@ class LINEAR_LOGSOFTMAX(nn.Module):
     def forward(self, x):
         o = self.logic(self.fc(x))
         return o
+
+
+def add_to_tensorboard(model, epoch, losses, coeffs, data, board):
+    # Add embeddings for VAE training every 10 epochs
+    if epoch % 10 == 0 and data != None:
+        cnn, att, labels = data[0], data[1], data[2]
+        board.add_embedding(model.encoder['resnet_features'](cnn)[0], metadata=labels, global_step=epoch, tag='cnn_embeddings')
+        board.add_embedding(model.encoder['attributes'](att)[0], metadata=labels, global_step=epoch, tag='att_embeddings')
+
+    # Track all trainable parameters
+    for datatype in model.all_data_sources:
+        for (name, param) in model.encoder[datatype].named_parameters():
+            if param.requires_grad:
+                board.add_histogram(name, param, global_step=epoch)
+        
+        for (name, param) in model.decoder[datatype].named_parameters():
+            if param.requires_grad:
+                board.add_histogram(name, param, global_step=epoch)
+
+    # Track losses & their coefficients (if any)
+    for (name, value) in {**losses, **coeffs}.items():
+        board.add_scalar(name, value, global_step=epoch)
+
+    board.close()
+
 
 class Model(nn.Module):
 
@@ -190,6 +217,9 @@ class Model(nn.Module):
     def train_vae(self):
         losses = [np.array([]) for _ in range(5)]
 
+        writer = SummaryWriter('paper/')
+        loss_names = ['Total loss', 'Reconstruction loss', 'KLD', 'CA', 'DA']
+
         self.dataset.novelclasses =self.dataset.novelclasses.long().to(self.device)
         self.dataset.seenclasses =self.dataset.seenclasses.long().to(self.device)
         #leave both statements
@@ -197,7 +227,7 @@ class Model(nn.Module):
         self.reparameterize_with_noise = True
 
         print('train for reconstruction')
-        for epoch in range(0, self.nepoch ):
+        for epoch in range(1, self.nepoch + 1):
             self.current_epoch = epoch
             epoch_loss = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 
@@ -220,6 +250,8 @@ class Model(nn.Module):
             epoch_loss = epoch_loss / self.dataset.ntrain
             for i in range(5):
                 losses[i] = np.append(losses[i], epoch_loss[i])
+
+            add_to_tensorboard(self, epoch, dict(zip(loss_names, epoch_loss)), {}, None, writer)
 
         # turn into evaluation mode:
         for key, value in self.encoder.items():
