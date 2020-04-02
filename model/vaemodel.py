@@ -37,11 +37,17 @@ def add_to_tensorboard(model, epoch, losses, coeffs, data, board):
     for datatype in model.all_data_sources:
         for (name, param) in model.encoder[datatype].named_parameters():
             if param.requires_grad:
-                board.add_histogram(name, param, global_step=epoch)
+                if datatype == 'resnet_features':
+                    board.add_histogram('cnn_encoder.' + name, param, global_step=epoch)
+                if datatype == 'attributes':
+                    board.add_histogram('att_encoder.' + name, param, global_step=epoch)
         
         for (name, param) in model.decoder[datatype].named_parameters():
             if param.requires_grad:
-                board.add_histogram(name, param, global_step=epoch)
+                if datatype == 'resnet_features':
+                    board.add_histogram('cnn_decoder.' + name, param, global_step=epoch)
+                if datatype == 'attributes':
+                    board.add_histogram('att_decoder.' + name, param, global_step=epoch)
 
     # Track losses & their coefficients (if any)
     for (name, value) in {**losses, **coeffs}.items():
