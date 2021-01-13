@@ -7,9 +7,8 @@ def weights_init(m):
     classname = m.__class__.__name__
     if classname.find('Linear') != -1:
         m.bias.data.fill_(0)
-
-        nn.init.xavier_uniform_(m.weight,gain=0.5)
-
+        nn.init.eye_(m.weight)
+        #nn.init.xavier_uniform_(m.weight,gain=0.5)
 
     elif classname.find('BatchNorm') != -1:
         m.weight.data.normal_(1.0, 0.02)
@@ -33,12 +32,12 @@ class encoder_template(nn.Module):
             modules.append(nn.Linear(self.layer_sizes[i],self.layer_sizes[i+1]))
             modules.append(nn.ReLU())
 
-        self.feature_encoder = nn.Sequential(*modules)
+        self.encoder = nn.Sequential(*modules)
 
-        self._mu = nn.Linear(in_features=self.layer_sizes[-2], out_features=latent_size)
+        self.mu = nn.Linear(in_features=self.layer_sizes[-2], out_features=latent_size)
 
 
-        self._logvar = nn.Linear(in_features=self.layer_sizes[-2], out_features=latent_size)
+        self.logvar = nn.Linear(in_features=self.layer_sizes[-2], out_features=latent_size)
 
 
         self.apply(weights_init)
@@ -48,11 +47,11 @@ class encoder_template(nn.Module):
 
     def forward(self,x):
 
-        h = self.feature_encoder(x)
+        h = self.encoder(x)
 
 
-        mu =  self._mu(h)
-        logvar = self._logvar(h)
+        mu =  self.mu(h)
+        logvar = self.logvar(h)
 
         return mu, logvar
 
@@ -64,11 +63,11 @@ class decoder_template(nn.Module):
 
         self.layer_sizes = [input_dim, hidden_size_rule[-1] , output_dim]
 
-        self.feature_decoder = nn.Sequential(nn.Linear(input_dim,self.layer_sizes[1]),nn.ReLU(),nn.Linear(self.layer_sizes[1],output_dim))
+        self.decoder = nn.Sequential(nn.Linear(input_dim,self.layer_sizes[1]),nn.ReLU(),nn.Linear(self.layer_sizes[1],output_dim))
 
         self.apply(weights_init)
 
         self.to(device)
     def forward(self,x):
 
-        return self.feature_decoder(x)
+        return self.decoder(x)

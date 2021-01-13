@@ -1,4 +1,5 @@
 #vaemodel
+import numpy as np
 import copy
 import torch
 import torch.backends.cudnn as cudnn
@@ -11,6 +12,8 @@ from data_loader import DATA_LOADER as dataloader
 import final_classifier as  classifier
 import models
 
+from torch.utils.tensorboard import SummaryWriter
+
 class LINEAR_LOGSOFTMAX(nn.Module):
     def __init__(self, input_dim, nclass):
         super(LINEAR_LOGSOFTMAX, self).__init__()
@@ -21,6 +24,37 @@ class LINEAR_LOGSOFTMAX(nn.Module):
     def forward(self, x):
         o = self.logic(self.fc(x))
         return o
+
+
+def add_to_tensorboard(model, epoch, losses, coeffs, data, board):
+    # Add embeddings for VAE training every 10 epochs
+    if epoch % 10 == 0 and data != None:
+        cnn, att, labels = data[0], data[1], data[2]
+        board.add_embedding(model.encoder['resnet_features'](cnn)[0], metadata=labels, global_step=epoch, tag='cnn_embeddings')
+        board.add_embedding(model.encoder['attributes'](att)[0], metadata=labels, global_step=epoch, tag='att_embeddings')
+
+    # Track all trainable parameters
+    for datatype in model.all_data_sources:
+        for (name, param) in model.encoder[datatype].named_parameters():
+            if param.requires_grad:
+                if datatype == 'resnet_features':
+                    board.add_histogram('cnn_encoder.' + name, param, global_step=epoch)
+                if datatype == 'attributes':
+                    board.add_histogram('att_encoder.' + name, param, global_step=epoch)
+        
+        for (name, param) in model.decoder[datatype].named_parameters():
+            if param.requires_grad:
+                if datatype == 'resnet_features':
+                    board.add_histogram('cnn_decoder.' + name, param, global_step=epoch)
+                if datatype == 'attributes':
+                    board.add_histogram('att_decoder.' + name, param, global_step=epoch)
+
+    # Track losses & their coefficients (if any)
+    for (name, value) in {**losses, **coeffs}.items():
+        board.add_scalar(name, value, global_step=epoch)
+
+    board.close()
+
 
 class Model(nn.Module):
 
@@ -69,7 +103,7 @@ class Model(nn.Module):
 
             self.encoder[datatype] = models.encoder_template(dim,self.latent_size,self.hidden_size_rule[datatype],self.device)
 
-            print(str(datatype) + ' ' + str(dim))
+            #print(str(datatype) + ' ' + str(dim))
 
         self.decoder = {}
         for datatype, dim in zip(self.all_data_sources,feature_dimensions):
@@ -80,14 +114,14 @@ class Model(nn.Module):
         for datatype in self.all_data_sources:
             parameters_to_optimize +=  list(self.encoder[datatype].parameters())
             parameters_to_optimize +=  list(self.decoder[datatype].parameters())
-
+        
         self.optimizer  = optim.Adam( parameters_to_optimize ,lr=hyperparameters['lr_gen_model'], betas=(0.9, 0.999), eps=1e-08, weight_decay=0, amsgrad=True)
 
         if self.reco_loss_function=='l2':
-            self.reconstruction_criterion = nn.MSELoss(size_average=False)
+            self.reconstruction_criterion = nn.MSELoss(reduction='sum')
 
         elif self.reco_loss_function=='l1':
-            self.reconstruction_criterion = nn.L1Loss(size_average=False)
+            self.reconstruction_criterion = nn.L1Loss(reduction='sum')
 
     def reparameterize(self, mu, logvar):
         if self.reparameterize_with_noise:
@@ -109,7 +143,6 @@ class Model(nn.Module):
         return mapped_label
 
     def trainstep(self, img, att):
-
         ##############################################
         # Encode image features and additional
         # features
@@ -144,8 +177,8 @@ class Model(nn.Module):
         # KL-Divergence
         ##############################################
 
-        KLD = (0.5 * torch.sum(1 + logvar_att - mu_att.pow(2) - logvar_att.exp())) \
-              + (0.5 * torch.sum(1 + logvar_img - mu_img.pow(2) - logvar_img.exp()))
+        KLD = - (0.5 * torch.sum(1 + logvar_att - mu_att.pow(2) - logvar_att.exp())) \
+              - (0.5 * torch.sum(1 + logvar_img - mu_img.pow(2) - logvar_img.exp()))
 
         ##############################################
         # Distribution Alignment
@@ -162,15 +195,15 @@ class Model(nn.Module):
 
         f1 = 1.0*(self.current_epoch - self.warmup['cross_reconstruction']['start_epoch'] )/(1.0*( self.warmup['cross_reconstruction']['end_epoch']- self.warmup['cross_reconstruction']['start_epoch']))
         f1 = f1*(1.0*self.warmup['cross_reconstruction']['factor'])
-        cross_reconstruction_factor = torch.FloatTensor([min(max(f1,0),self.warmup['cross_reconstruction']['factor'])]).to(self.device)
+        cross_reconstruction_factor = torch.tensor(min(max(f1,0),self.warmup['cross_reconstruction']['factor'])).to(self.device)
 
         f2 = 1.0 * (self.current_epoch - self.warmup['beta']['start_epoch']) / ( 1.0 * (self.warmup['beta']['end_epoch'] - self.warmup['beta']['start_epoch']))
         f2 = f2 * (1.0 * self.warmup['beta']['factor'])
-        beta = torch.FloatTensor([min(max(f2, 0), self.warmup['beta']['factor'])]).to(self.device)
+        beta = torch.tensor(min(max(f2, 0), self.warmup['beta']['factor'])).to(self.device)
 
         f3 = 1.0*(self.current_epoch - self.warmup['distance']['start_epoch'] )/(1.0*( self.warmup['distance']['end_epoch']- self.warmup['distance']['start_epoch']))
         f3 = f3*(1.0*self.warmup['distance']['factor'])
-        distance_factor = torch.FloatTensor([min(max(f3,0),self.warmup['distance']['factor'])]).to(self.device)
+        distance_factor = torch.tensor(min(max(f3,0),self.warmup['distance']['factor'])).to(self.device)
 
         ##############################################
         # Put the loss together and call the optimizer
@@ -178,21 +211,19 @@ class Model(nn.Module):
 
         self.optimizer.zero_grad()
 
-        loss = reconstruction_loss - beta * KLD
-
-        if cross_reconstruction_loss>0:
-            loss += cross_reconstruction_factor*cross_reconstruction_loss
-        if distance_factor >0:
-            loss += distance_factor*distance
+        loss = reconstruction_loss + beta*KLD + cross_reconstruction_factor*cross_reconstruction_loss + distance_factor*distance
 
         loss.backward()
 
         self.optimizer.step()
 
-        return loss.item()
+        return np.array([loss.item(), reconstruction_loss.item(), KLD.item(), cross_reconstruction_loss.item(), distance.item()])
 
     def train_vae(self):
-        losses = []
+        losses = [np.array([]) for _ in range(5)]
+
+        writer = SummaryWriter('paper/')
+        loss_names = ['Total loss', 'Reconstruction loss', 'KLD', 'CA', 'DA']
 
         self.dataset.novelclasses =self.dataset.novelclasses.long().to(self.device)
         self.dataset.seenclasses =self.dataset.seenclasses.long().to(self.device)
@@ -201,9 +232,9 @@ class Model(nn.Module):
         self.reparameterize_with_noise = True
 
         print('train for reconstruction')
-        for epoch in range(0, self.nepoch ):
+        for epoch in range(1, self.nepoch + 1):
             self.current_epoch = epoch
-            epoch_loss = 0.0
+            epoch_loss = np.array([0.0, 0.0, 0.0, 0.0, 0.0])
 
             i=-1
             for iters in range(0, self.dataset.ntrain, self.batch_size):
@@ -214,15 +245,18 @@ class Model(nn.Module):
                 label= label.long().to(self.device)
                 for j in range(len(data_from_modalities)):
                     data_from_modalities[j] = data_from_modalities[j].to(self.device)
-                    data_from_modalities[j].requires_grad = False
 
                 loss = self.trainstep(data_from_modalities[0], data_from_modalities[1] )
-                epoch_loss += loss.item()
+                epoch_loss += loss
 
                 if i%50==0:
-                    print('Epoch {} | iter {} \t | loss {:.2f}'.format(epoch, i, loss))
+                    print('Epoch {} | iter {} \t | loss {:.2f}'.format(epoch, i, loss[0]))
 
-            losses.append(epoch_loss / self.dataset.ntrain)
+            epoch_loss = epoch_loss / self.dataset.ntrain
+            for i in range(5):
+                losses[i] = np.append(losses[i], epoch_loss[i])
+
+            add_to_tensorboard(self, epoch, dict(zip(loss_names, epoch_loss)), {}, None, writer)
 
         # turn into evaluation mode:
         for key, value in self.encoder.items():
@@ -238,7 +272,7 @@ class Model(nn.Module):
             print('================  transfer features from test to train ==================')
             self.dataset.transfer_features(self.num_shots, num_queries='num_features')
 
-        history = []  # stores accuracies
+        history = [np.array([]) for _ in range(4)]  # stores accuracies
 
 
         cls_seenclasses = self.dataset.seenclasses
@@ -423,15 +457,19 @@ class Model(nn.Module):
                 print('[%.1f]     novel=%.4f, seen=%.4f, h=%.4f , loss=%.4f' % (
                 k, cls.acc_novel, cls.acc_seen, cls.H, cls.average_loss))
 
-                history.append([torch.tensor(cls.acc_seen).item(), torch.tensor(cls.acc_novel).item(),
-                                torch.tensor(cls.H).item()])
+                history[0] = np.append(history[0], cls.loss.item())
+                history[1] = np.append(history[1], cls.acc_seen.item())
+                history[2] = np.append(history[2], cls.acc_novel.item())
+                history[3] = np.append(history[3], cls.H.item())
 
             else:
                 print('[%.1f]  acc=%.4f ' % (k, cls.acc))
-                history.append([0, torch.tensor(cls.acc).item(), 0])
+                history[0] = np.append(history[0], torch.tensor(cls.loss).item())
+                history[1] = np.append(history[1], 0)
+                history[2] = np.append(history[2], torch.tensor(cls.acc_novel).item())
+                history[3] = np.append(history[3], 0)
 
         if self.generalized:
-            return torch.tensor(cls.acc_seen).item(), torch.tensor(cls.acc_novel).item(), torch.tensor(
-                cls.H).item(), history
+            return cls.acc_seen.item(), cls.acc_novel.item(), cls.H.item(), history
         else:
             return 0, torch.tensor(cls.acc).item(), 0, history
