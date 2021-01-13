@@ -1,2 +1,4 @@
 data
 model/__pycache__
+model/upload.sh
+model/download.sh
