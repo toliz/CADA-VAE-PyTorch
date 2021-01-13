@@ -20,19 +20,13 @@ def map_label(label, classes):
 class DATA_LOADER(object):
     def __init__(self, dataset, aux_datasource, device='cuda'):
 
-        print("The current working directory is")
-        print(os.getcwd())
         folder = str(Path(os.getcwd()))
         if folder[-5:] == 'model':
             project_directory = Path(os.getcwd()).parent
         else:
             project_directory = folder
 
-        print('Project Directory:')
-        print(project_directory)
         data_path = str(project_directory) + '/data'
-        print('Data Path')
-        print(data_path)
         sys.path.append(data_path)
 
         self.data_path = data_path
@@ -67,8 +61,7 @@ class DATA_LOADER(object):
 
     def read_matdataset(self):
         path= self.datadir + 'res101.mat'
-        print('_____')
-        print(path)
+
         matcontent = sio.loadmat(path)
         feature = matcontent['features'].T
         label = matcontent['labels'].astype(int).squeeze() - 1
